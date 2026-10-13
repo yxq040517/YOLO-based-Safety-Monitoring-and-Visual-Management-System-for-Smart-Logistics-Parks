@@ -1,0 +1,71 @@
+name: logistics-safety
+x-backend: &backend
+  build:
+    context: .
+    dockerfile: deploy/backend.Dockerfile
+  environment: &backend-env
+    DATABASE_URL: postgresql+psycopg://logistics:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/logistics
+    REDIS_URL: redis://redis:6379/0
+    TASK_MODE: celery
+    STORAGE_DIR: /app/storage
+    JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+    CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+  volumes:
+    - ./storage:/app/storage
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: logistics
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: logistics
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U logistics -d logistics']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --appendonly, 'yes']
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  api:
+    <<: *backend
+    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, '8000', --workers, '1', --ws-max-size, '2097152', --ws-max-queue, '1']
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://localhost:8000/api/health")']
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 10
+  worker:
+    <<: *backend
+    command: [celery, -A, app.tasks.celery_app, worker, --loglevel=INFO, --concurrency=1, --pool=solo]
+  web:
+    build:
+      context: .
+      dockerfile: deploy/frontend.Dockerfile
+    ports:
+      - '127.0.0.1:${WEB_PORT:-8080}:80'
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  postgres-data:
+  redis-data:

@@ -1,0 +1,17 @@
+.venv/
+cuda-cache/
+.env
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+storage/
+物流数据集/
+*.pt
+*.onnx
+*.log
+*.tsbuildinfo
